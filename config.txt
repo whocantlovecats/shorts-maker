@@ -1,0 +1,9 @@
+# Shorts Maker Configuration
+# Get your FREE API key from: https://aistudio.google.com/app/apikeys
+
+API_KEY=paste_your_api_key_here
+VIDEO_FOLDER=./videos
+OUTPUT_FOLDER=./output
+MIN_CLIP_LENGTH=15
+MAX_CLIP_LENGTH=60
+NUM_SHORTS=5
