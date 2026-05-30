@@ -1,177 +1,241 @@
 #!/usr/bin/env python3
 """
-Shorts Maker - Turn long videos into viral shorts automatically
-No coding required - just run this file!
+Shorts Maker - Auto-analyze videos and create viral short-form content
+Dead simple GUI - just drag, analyze, done!
 """
 
 import os
 import sys
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-import threading
+from tkinter import filedialog, messagebox
 from pathlib import Path
+import threading
 
-# Check if assets folder exists
-if not os.path.exists('assets'):
-    os.makedirs('assets')
+# Add assets folder to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'assets'))
 
 try:
-    from assets.transcriber import transcribe_video
-    from assets.scorer import score_moments
-    from assets.detector import detect_visual_peaks
-    from assets.editor import create_shorts
-except ImportError:
-    print("❌ Missing files! Creating them...")
-    # Will create empty stubs
-    pass
+    from transcriber import transcribe_video
+    from scorer import score_moments
+    from detector import detect_visual_spikes
+    from editor import cut_and_export_shorts
+except ImportError as e:
+    print(f"Error importing modules: {e}")
+    print("Make sure you've run: pip install -r requirements.txt")
+    sys.exit(1)
 
-class ShortsApp:
+
+class ShortsMakerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("🎬 Shorts Maker")
+        self.root.title("🎬 Shorts Maker - Auto Viral Clips")
         self.root.geometry("600x500")
-        self.root.config(bg="#1e1e1e")
+        self.root.configure(bg="#1a1a1a")
         
-        self.video_path = tk.StringVar()
+        # Load config
         self.api_key = self.load_api_key()
         
+        # Main UI
         self.setup_ui()
+        self.video_path = None
     
     def load_api_key(self):
         """Load API key from config.txt"""
+        config_path = "config.txt"
+        
+        if not os.path.exists(config_path):
+            messagebox.showerror("Error", "config.txt not found!")
+            return None
+        
         try:
-            with open('config.txt', 'r') as f:
+            with open(config_path, 'r') as f:
                 for line in f:
                     if line.startswith('API_KEY='):
-                        key = line.split('=')[1].strip()
-                        if key != 'paste_your_api_key_here':
+                        key = line.split('=', 1)[1].strip()
+                        if key and key != "paste_your_key_here":
                             return key
-        except:
-            pass
-        return None
+            
+            messagebox.showerror(
+                "No API Key Found",
+                "Please edit config.txt and add your API key from:\n"
+                "https://aistudio.google.com/app/apikeys"
+            )
+            return None
+        except Exception as e:
+            messagebox.showerror("Config Error", f"Can't read config.txt: {e}")
+            return None
     
     def setup_ui(self):
-        """Create the user interface"""
+        """Create simple GUI"""
         # Title
-        title = tk.Label(self.root, text="🎬 Shorts Maker", font=("Arial", 24, "bold"), fg="#00ff88", bg="#1e1e1e")
+        title = tk.Label(
+            self.root,
+            text="🎬 SHORTS MAKER",
+            font=("Arial", 24, "bold"),
+            fg="#00ff41",
+            bg="#1a1a1a"
+        )
         title.pack(pady=20)
         
-        # Info
-        info = tk.Label(self.root, text="Turn your videos into viral shorts automatically!", font=("Arial", 12), fg="#aaa", bg="#1e1e1e")
-        info.pack()
+        # Subtitle
+        subtitle = tk.Label(
+            self.root,
+            text="Drop your video → Find viral moments → Auto-cut shorts",
+            font=("Arial", 11),
+            fg="#888",
+            bg="#1a1a1a"
+        )
+        subtitle.pack(pady=5)
         
-        # API Key Status
-        if self.api_key:
-            key_status = tk.Label(self.root, text="✅ API Key loaded", font=("Arial", 10), fg="#00ff88", bg="#1e1e1e")
-        else:
-            key_status = tk.Label(self.root, text="⚠️  No API key found in config.txt", font=("Arial", 10), fg="#ff6b6b", bg="#1e1e1e")
-        key_status.pack(pady=5)
-        
-        # Setup button
-        setup_btn = tk.Button(self.root, text="🔑 Setup API Key", command=self.setup_api_key, bg="#ff6b6b", fg="white", font=("Arial", 11, "bold"), width=25)
-        setup_btn.pack(pady=10)
-        
-        # Video selection
-        select_btn = tk.Button(self.root, text="📁 Browse & Select Video", command=self.select_video, bg="#4a9eff", fg="white", font=("Arial", 12, "bold"), width=25, height=2)
-        select_btn.pack(pady=20)
-        
-        # Selected video display
-        self.video_label = tk.Label(self.root, text="No video selected", font=("Arial", 10), fg="#aaa", bg="#2a2a2a", wraplength=500, justify="left")
-        self.video_label.pack(pady=10, padx=20, fill="both", expand=True)
-        
-        # Process button
-        self.process_btn = tk.Button(self.root, text="▶️ ANALYZE & CREATE SHORTS", command=self.process_video, bg="#00ff88", fg="#000", font=("Arial", 12, "bold"), width=25, height=2)
-        self.process_btn.pack(pady=20)
-        
-        # Progress bar
-        self.progress = ttk.Progressbar(self.root, mode='indeterminate')
-        self.progress.pack(pady=10, padx=20, fill="x")
+        # Video selection button
+        self.select_btn = tk.Button(
+            self.root,
+            text="📁 SELECT VIDEO",
+            font=("Arial", 14, "bold"),
+            bg="#00ff41",
+            fg="#000",
+            padx=40,
+            pady=15,
+            command=self.select_video,
+            cursor="hand2"
+        )
+        self.select_btn.pack(pady=20)
         
         # Status label
-        self.status_label = tk.Label(self.root, text="Ready!", font=("Arial", 10), fg="#aaa", bg="#1e1e1e")
-        self.status_label.pack(pady=5)
-    
-    def setup_api_key(self):
-        """Guide user to setup API key"""
-        messagebox.showinfo("Setup API Key", 
-            "1. Go to: https://aistudio.google.com/app/apikeys\n"
-            "2. Click 'Create API Key'\n"
-            "3. Copy the key\n"
-            "4. Open config.txt in this folder\n"
-            "5. Replace 'paste_your_api_key_here' with your key\n"
-            "6. Save and restart this app\n\n"
-            "It's completely FREE - no credit card needed!")
+        self.status_label = tk.Label(
+            self.root,
+            text="No video selected",
+            font=("Arial", 10),
+            fg="#888",
+            bg="#1a1a1a"
+        )
+        self.status_label.pack(pady=10)
+        
+        # Analyze button
+        self.analyze_btn = tk.Button(
+            self.root,
+            text="▶️ ANALYZE & CREATE SHORTS",
+            font=("Arial", 14, "bold"),
+            bg="#ff6b35",
+            fg="#fff",
+            padx=40,
+            pady=15,
+            command=self.analyze_video,
+            cursor="hand2",
+            state="disabled"
+        )
+        self.analyze_btn.pack(pady=20)
+        
+        # Progress label
+        self.progress_label = tk.Label(
+            self.root,
+            text="",
+            font=("Arial", 10),
+            fg="#00ff41",
+            bg="#1a1a1a"
+        )
+        self.progress_label.pack(pady=10)
+        
+        # Info box
+        info = tk.Label(
+            self.root,
+            text="💡 Tips:\n"
+                 "• Videos 5-30 min work best\n"
+                 "• Clear audio = better results\n"
+                 "• Processing takes 2-5 minutes\n"
+                 "• Check /output folder for results",
+            font=("Arial", 9),
+            fg="#666",
+            bg="#1a1a1a",
+            justify="left"
+        )
+        info.pack(pady=20, padx=20)
     
     def select_video(self):
-        """Let user select a video file"""
+        """Pick a video file"""
         file = filedialog.askopenfilename(
-            title="Select a video",
-            filetypes=[("Video files", "*.mp4 *.avi *.mov *.mkv"), ("All files", "*.*")]
+            title="Select video",
+            filetypes=[
+                ("Video files", "*.mp4 *.mov *.avi *.mkv *.webm"),
+                ("All files", "*.*")
+            ]
         )
+        
         if file:
-            self.video_path.set(file)
-            self.video_label.config(text=f"Selected: {os.path.basename(file)}")
+            self.video_path = file
+            filename = os.path.basename(file)
+            self.status_label.config(
+                text=f"✅ Selected: {filename}",
+                fg="#00ff41"
+            )
+            self.analyze_btn.config(state="normal")
     
-    def process_video(self):
-        """Process the video in background thread"""
-        if not self.video_path.get():
-            messagebox.showerror("Error", "Please select a video first!")
+    def analyze_video(self):
+        """Run analysis in background thread"""
+        if not self.video_path:
+            messagebox.showwarning("No video", "Select a video first!")
             return
         
         if not self.api_key:
-            messagebox.showerror("Error", "Please setup your API key first!")
+            messagebox.showerror(
+                "No API Key",
+                "API key not set. Edit config.txt with your key from:\n"
+                "https://aistudio.google.com/app/apikeys"
+            )
             return
         
-        self.process_btn.config(state="disabled")
-        self.progress.start()
-        self.status_label.config(text="Processing... (this may take a few minutes)")
+        # Disable button during processing
+        self.analyze_btn.config(state="disabled")
+        self.select_btn.config(state="disabled")
         
-        thread = threading.Thread(target=self._process_thread)
+        # Run in thread so UI doesn't freeze
+        thread = threading.Thread(
+            target=self.process_video,
+            args=(self.video_path, self.api_key)
+        )
+        thread.daemon = True
         thread.start()
     
-    def _process_thread(self):
-        """Background processing thread"""
+    def process_video(self, video_path, api_key):
+        """Actual processing happens here"""
         try:
-            video_file = self.video_path.get()
+            self.update_progress("🎬 Transcribing audio...")
+            transcript = transcribe_video(video_path)
             
-            # Create output folder
-            os.makedirs('output', exist_ok=True)
+            self.update_progress("🧠 Scoring moments with AI...")
+            scored_moments = score_moments(transcript, api_key)
             
-            self.status_label.config(text="📝 Transcribing audio...")
-            self.root.update()
+            self.update_progress("👁️ Detecting visual spikes...")
+            visual_scores = detect_visual_spikes(video_path)
             
-            # Step 1: Transcribe
-            transcript = transcribe_video(video_file)
+            self.update_progress("✂️ Cutting and exporting shorts...")
+            output_files = cut_and_export_shorts(
+                video_path,
+                scored_moments,
+                visual_scores
+            )
             
-            self.status_label.config(text="🎯 Scoring moments...")
-            self.root.update()
-            
-            # Step 2: Score
-            moments = score_moments(transcript, self.api_key)
-            
-            self.status_label.config(text="👁️ Detecting visual peaks...")
-            self.root.update()
-            
-            # Step 3: Detect visuals
-            moments = detect_visual_peaks(video_file, moments)
-            
-            self.status_label.config(text="✂️ Creating shorts...")
-            self.root.update()
-            
-            # Step 4: Create shorts
-            shorts_created = create_shorts(video_file, moments)
-            
-            self.status_label.config(text=f"✅ Done! Created {shorts_created} shorts")
-            messagebox.showinfo("Success!", f"Created {shorts_created} shorts!\n\nFind them in: ./output")
+            self.update_progress("✅ DONE! Check /output folder")
+            messagebox.showinfo(
+                "Success!",
+                f"Created {len(output_files)} shorts!\n\n"
+                f"Location: {os.path.abspath('output')}"
+            )
             
         except Exception as e:
-            self.status_label.config(text="❌ Error occurred")
-            messagebox.showerror("Error", f"Something went wrong:\n{str(e)}")
+            self.update_progress(f"❌ Error: {str(e)[:50]}")
+            messagebox.showerror("Error", f"Processing failed:\n{str(e)}")
+        
         finally:
-            self.progress.stop()
-            self.process_btn.config(state="normal")
+            self.analyze_btn.config(state="normal")
+            self.select_btn.config(state="normal")
+    
+    def update_progress(self, message):
+        """Update progress label safely"""
+        self.root.after(0, lambda: self.progress_label.config(text=message))
+
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = ShortsApp(root)
+    app = ShortsMakerApp(root)
     root.mainloop()
